@@ -1,3 +1,5 @@
+# This implementation is based on double DQN algorithm as described by Hasselt et al. (https://arxiv.org/abs/1509.06461)
+
 #!/usr/bin/env python
 import keras, tensorflow as tf, numpy as np, gym, sys, copy, argparse, random
 from keras.layers import Input, Dense
@@ -7,15 +9,20 @@ from keras.models import load_model
 import matplotlib.pyplot as plt
 
 class QNetwork():
+    '''
+    Class to define the network architecture for calculation of Q values for the possible actions given the current state of agent
 
-    # This class essentially defines the network architecture. 
-    # The network should take in state of the world as an input, 
-    # and output Q values of the actions available to the agent as the output. 
+    Attributes:
+    environment_name (str): Currently two Gym environments are supported (CartPole and Mountain Car)
+    '''
 
     def __init__(self, environment_name):
-        # Define your network architecture here. It is also a good idea to define any training operations 
-        # and optimizers here, initialize your variables, or alternately compile your model here. 
-        
+        '''
+        Function to define network architecture and instantiate a network object
+
+        Parameters:
+        environment_name: Name of OpenAI Gym environment for which training is to be done (CartPole or MountainCar)
+        '''
         env = gym.make(environment_name)
         
         if environment_name == 'CartPole-v0':
@@ -48,44 +55,73 @@ class QNetwork():
         self.target_model = model
         
     def save_model_weights(self, suffix):
-        # Helper function to save your model / weights. 
+        '''
+        Function to save model weights to file
+
+        Parameters:
+        suffix: File name for saving model weights
+        '''
         self.model.save_weights(suffix)
 
     def load_model(self, model_file):
-        # Helper function to load an existing model.
+        '''
+        Function to load a previously saved model
+
+        Parameters:
+        model_file: File name for previously saved model
+        '''
         self.model = load_model(model_file)
 
     def load_model_weights(self,weight_file):
-        # Helper funciton to load model weights. 
+        '''
+        Function to load model weights from a previously saved model weights file
+
+        Parameters:
+        weight_file: File name for previously saved model weights file
+        '''
         self.model.load_weights(weight_file)
 
 class Replay_Memory():
+    '''
+    Class to generate the replay memory buffer to store transition tuples
+
+    Attributes:
+    memory_size: Size of replay buffer
+    burn_in: Number of transtion tuples for intialization
+    '''
+
     def __init__(self, memory_size=50000, burn_in=10000):
-
-        # The memory essentially stores transitions recorder from the agent
-        # taking actions in the environment.
-
-        # Burn in episodes define the number of episodes that are written into the memory from the 
-        # randomly initialized agent. Memory size is the maximum sjze after which old elements in the memory are replaced. 
-        # A simple (if not the most efficient) was to implement the memory is as a list of transitions. 
-
-       # self.memory = np.zeros([memory_size,4])
-
-       self.memory = []
-       self.current = 0
-       self.max = memory_size
-#       self.burn = burn_in
+        '''
+        Function to generate replay memory buffer and instantiate memory buffer object
+        Parameters:
+        memory_size: Number of transition tuples to be stored in the replay memory buffer 
+        burn_in: Number of transition tuples to be initialized with randomly initialized agent to facilitate beginning of training
+        '''
+        self.memory = []
+        self.current = 0
+        self.max = memory_size
 
     def sample_batch(self, batch_size=32):
-        # This function returns a batch of randomly sampled transitions - i.e. state, action, reward, next state, terminal flag tuples. 
-        # You will feed this to your model to train.
-        
+        '''
+        Function to sample a batch of transition tuples for training
+
+        Parameters:
+        batch_size: Size of transition tuples batch to be sampled for training
+
+        Output:
+        Randomly sampled batch of transition tuples
+        '''
         return random.sample(self.memory,batch_size)
 
     def append(self, transition):
+        '''
+        Function to add new transition tuples to replay memory buffer
+
+        Parameters:
+        transition: Transition tuple to be added to the replay memory buffer
+        '''
         # Appends transition to the memory.
         if self.current<self.max:
-            # self.memory[self.current,:] = transition
             self.memory.append(transition)
             self.current = self.current + 1
         else:
@@ -93,21 +129,22 @@ class Replay_Memory():
             self.current = self.current + 1
 
 class DQN_Agent():
+    '''
+    Class to initialize agent and train the agent in the specified environment
 
-    # In this class, we will implement functions to do the following. 
-    # (1) Create an instance of the Q Network class.
-    # (2) Create a function that constructs a policy from the Q values predicted by the Q Network. 
-    #       (a) Epsilon Greedy Policy.
-    #       (b) Greedy Policy. 
-    # (3) Create a function to train the Q Network, by interacting with the environment.
-    # (4) Create a function to test the Q Network's performance on the environment.
-    # (5) Create a function for Experience Replay.
-    
+    Attributes:
+    environment_name (str): Currently two Gym environments are supported (CartPole and Mountain Car)
+    render: Argument to specify whether video is to be rendered
+    '''
+
     def __init__(self, environment_name, render=False):
-        # Create an instance of the network itself, as well as the memory. 
-        # Here is also a good place to set environmental parameters,
-        # as well as training parameters - number of episodes / iterations, etc. 
-        
+        '''
+        Function to initialize environment, replay memory buffer and network instance
+
+        Parameters:
+        environment_name (str): Currently two Gym environments are supported (CartPole and Mountain Car)
+        render: Argument to specify whether video is to be rendered
+        '''
         self.network = QNetwork(environment_name)
         self.memory = Replay_Memory()
         self.num_ep = 10000
@@ -120,7 +157,16 @@ class DQN_Agent():
             self.discount = 1
     
     def epsilon_greedy_policy(self, q_values,epsilon):
-        # Creating epsilon greedy probabilities to sample from.         
+        '''
+        Function to implement epsilon-greedy policy for the agent
+
+        Parameters:
+        q_values: Q-values for the possible actions
+        epsilon: Parameter to define exploratory action probability
+
+        Output:
+        action: Action selected by agent as per epsilon-greedy policy
+        '''
         num = random.random()
         if(num<epsilon):
             action = self.env.action_space.sample()
@@ -129,17 +175,27 @@ class DQN_Agent():
         return action
 
     def greedy_policy(self, q_values):
-        # Creating greedy policy for test time. 
+        '''
+        Function to implement greedy policy for the agent
+
+        Parameters:
+        q_values: Q-values for the possible actions
+
+        Output:
+        Action selected by agent as per greedy policy corresponding to maximum Q-value
+        '''
         return np.argmax(q_values)
 
     def train(self):
-        
-        # In this function, we will train our network. 
-        # If training without experience replay_memory, then you will interact with the environment 
-        # in this function, while also updating your network parameters. 
+        '''
+        Function to train the agent and save checkpoint videos
 
-        # If you are using a replay memory, you should interact with environment here, and store these 
-        # transitions to memory, while also updating your model.
+        Parameters:
+        None
+
+        Output:
+        Reward obtained after test
+        '''
         step = 0
         performance_reward = []
         if self.render_decision:
@@ -210,18 +266,26 @@ class DQN_Agent():
             if episode%200==0:
                 mean,_ = self.test(20)
                 performance_reward.append(mean)
-##                Save model after every 1000 episodes
-#                if episode%1000==0:
-#                    name = 'double_DQN_model_'+self.env_name+'_'+str(episode)+'.h5'
-#                    self.network.model.save(name)
+#                Save model after every 1000 episodes
+               if episode%1000==0:
+                   name = 'double_DQN_model_'+self.env_name+'_'+str(episode)+'.h5'
+                   self.network.model.save(name)
             if total_reward!=-200 or episode%100==0:
                 print("After {} episodes, the reward in this episode is {}".format(episode,total_reward))
         return performance_reward
         
 
     def test(self, ep,model_file=None):
-        # Evaluate the performance of your agent over 100 episodes, by calculating cummulative rewards for the 100 episodes.
-        # Here you need to interact with the environment, irrespective of whether you are using a memory. 
+        '''
+        Function to test the current policy
+
+        Parameters:
+        ep: Number of test episodes to be considered
+        model_file: File for restoring model which is to be evaluated
+
+        Output:
+        Mean and standard deviation of rewards for the test episodes
+        '''
         if model_file!=None:
             self.network.load_model(model_file)
         reward_list = np.zeros((ep,1))
@@ -237,8 +301,12 @@ class DQN_Agent():
         return np.mean(reward_list), np.std(reward_list)
     
     def burn_in_memory(self):
-        # Initialize your replay memory with a burn_in number of episodes / transitions. 
-        
+        '''
+        Function to initialize replay memory buffer with transition tuples generated by randomly initialized agent
+
+        Parameters:
+        None
+        '''
         burn_in=10000
         state = self.env.reset()
         done = False
@@ -258,6 +326,15 @@ class DQN_Agent():
         
 
 def parse_arguments():
+    '''
+    Function to parse arguments as per argparse
+
+    Parameters:
+    None
+
+    Output:
+    Parsed arguments
+    '''
     parser = argparse.ArgumentParser(description='Deep Q Network Argument Parser')
     parser.add_argument('--env',dest='env',type=str)
     parser.add_argument('--render',dest='render',type=int,default=0)
@@ -266,8 +343,12 @@ def parse_arguments():
     return parser.parse_args()
 
 def main(args):
-    
+    '''
+    Function to initiate the training process and evaluating performance
 
+    Parameters:
+    args: arguments specifying environment, rendering, model file
+    '''
     args = parse_arguments()
     environment_name = args.env
     render_decision = args.render
@@ -278,11 +359,9 @@ def main(args):
     gpu_ops = tf.GPUOptions(allow_growth=True)
     config = tf.ConfigProto(gpu_options=gpu_ops)
     sess = tf.Session(config=config)
-
-    # Setting this as the default tensorflow session. 
     keras.backend.tensorflow_backend.set_session(sess)
     
-    # You want to create an instance of the DQN_Agent class here, and then train / test it.
+    # Creating instance of agent
     agent = DQN_Agent(environment_name,render_decision)
     if train_decision:
         agent.burn_in_memory()
