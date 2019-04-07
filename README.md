@@ -18,10 +18,13 @@ In addition to this, REINFORCE and N-step Actor Critic algorithms were implement
 Following is the training progress for mountaincar environment using DQN.
 
 After training for 3333 episodes
+
 ![](https://github.com/kshitij-ingale/Reinforcement-Learning/blob/master/Videos/Mountain%20Car/1.gif)
 
 After training for 6666 episodes
+
 ![](https://github.com/kshitij-ingale/Reinforcement-Learning/blob/master/Videos/Mountain%20Car/2.gif)
 
 After training for 9999 episodes
+
 ![](https://github.com/kshitij-ingale/Reinforcement-Learning/blob/master/Videos/Mountain%20Car/3.gif)
