@@ -94,9 +94,9 @@ class Replay_Memory():
         memory_size: Number of transition tuples to be stored in the replay memory buffer 
         burn_in: Number of transition tuples to be initialized with randomly initialized agent to facilitate beginning of training
         '''
-       self.memory = []
-       self.current = 0
-       self.max = memory_size
+        self.memory = []
+        self.current = 0
+        self.max = memory_size
 
     def sample_batch(self, batch_size=32):
         '''
