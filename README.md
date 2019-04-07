@@ -13,3 +13,12 @@ In addition to this, REINFORCE and N-step Actor Critic algorithms were implement
 - **Duel_Network.py** : Script for training the agent with dueling network architecture
 - **a2c.py** : Script for training the agent with N-step A2C algorithm (Lunar-lander)
 - **reinforce.py** : Script for training the agent with REINFORCE architecture (Lunar-lander)
+
+## Results:
+Following is the training progress for mountaincar environment using DQN.
+After training for 3333 episodes
+![](https://github.com/kshitij-ingale/Reinforcement-Learning/blob/master/Videos/Mountain%20Car/1.gif)
+After training for 6666 episodes
+![](https://github.com/kshitij-ingale/Reinforcement-Learning/blob/master/Videos/Mountain%20Car/2.gif)
+After training for 9999 episodes
+![](https://github.com/kshitij-ingale/Reinforcement-Learning/blob/master/Videos/Mountain%20Car/3.gif)
