@@ -21,10 +21,10 @@ After training for 3333 episodes
 
 ![](https://github.com/kshitij-ingale/Reinforcement-Learning/blob/master/Videos/Mountain%20Car/1.gif)
 
-After training for 6666 episodes
+After training for 6666 episodes, it can be seen that the agent reaches the top but it is not the optimal policy as the agent goes to the top on the left slope which might be suboptimal.
 
 ![](https://github.com/kshitij-ingale/Reinforcement-Learning/blob/master/Videos/Mountain%20Car/2.gif)
 
-After training for 9999 episodes
+After training for 9999 episodes, it can be noted that the agent learns optimal policy and climbs the right slope just enough so that it goes onto left slope and gain enough momentum to reach the top.
 
 ![](https://github.com/kshitij-ingale/Reinforcement-Learning/blob/master/Videos/Mountain%20Car/3.gif)
