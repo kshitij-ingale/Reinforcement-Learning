@@ -1,2 +1,15 @@
 # Reinforcement-Learning
-Implementation for DQN, Double DQN, Dueling networks, A2C and REINFORCE for OpenAI gym environments
+Implementation for reinforcement learning algorithms for OpenAI gym environments
+
+## RL algorithms
+- Dynamic Programming
+    - Value iteration
+    - Policy iteration
+- Monte Carlo
+- TD-learning
+    - SARSA
+    - Q-learning
+- Deep Q networks
+- Policy gradient
+    - REINFORCE (with / without baseline)
+    - Actor critic
