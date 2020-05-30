@@ -2,7 +2,12 @@
 import gym
 import argparse, os, logging, time, pickle
 import numpy as np
-from config import TrainingParameters, Directories
+from tqdm import tqdm
+import sys
+
+if os.path.abspath("../") not in sys.path:
+    sys.path.append(os.path.abspath("../"))
+from utils.utils import parse_config
 
 
 class QTable:
@@ -80,7 +85,7 @@ class QTable:
 
 
 class MonteCarlo:
-    def __init__(self, env, parameters):
+    def __init__(self, env, parameters, logger=None):
         """ Monte Carlo agent
 
         Parameters
@@ -89,8 +94,16 @@ class MonteCarlo:
             Gym environment to be used for Monte Carlo agent
         parameters : arparse arguments
             CLI arguments provided to script parsed through argparse
+        logger : logging.Logger object, optional
+            Logging object to be used, if not provided, print to stdout, by default None
         """
         self.env = env
+        if (not isinstance(self.env.action_space, gym.spaces.discrete.Discrete)) or (
+            not isinstance(self.env.action_space, gym.spaces.discrete.Discrete)
+        ):
+            raise NotImplementedError(
+                "Continuous observation or action space is not supported"
+            )
         num_states = 1
         if hasattr(self.env.observation_space, "spaces"):
             for space in self.env.observation_space.spaces:
@@ -102,24 +115,18 @@ class MonteCarlo:
 
         if parameters.saved_arrays_path:
             self.Q_store.load_arrays(parameters.saved_arrays_path)
-
+        if logger:
+            self.print_fn = logger.info
+        else:
+            self.print_fn = print
         self.train_episodes = parameters.train_episodes
-        self.epsilon = TrainingParameters.epsilon
-        self.discount = TrainingParameters.discount
 
-    def simulate_episodes(self, logger=None):
+    def simulate_episodes(self):
         """ Monte Carlo simulations of episodes
-        This function runs training for MC and saves arrays of learnt Q-values
-        and policy
-
-        Parameters
-        ----------
-        logger : logging.Logger object, optional
-            Logging object to be used, if not provided, print to stdout, by default None
+        This function runs training for MC and saves arrays of learnt Q-values and policy
         """
-        print_fn = logger.info if logger else print
-        print_fn(f"Simulating {self.train_episodes} episodes to get Q-values")
-        for _ in range(self.train_episodes):
+        self.print_fn(f"Simulating {self.train_episodes} episodes to get Q-values")
+        for _ in tqdm(range(self.train_episodes)):
             done = False
             state = self.env.reset()
             state_actions, rewards = [], []
@@ -133,7 +140,7 @@ class MonteCarlo:
         arrays_save_file = os.path.join(
             Directories.arrays, f"{self.env.spec._env_name}_arrays.pkl"
         )
-        print_fn(f"Saving Q-values and policy arrays in  {arrays_save_file}")
+        self.print_fn(f"Saving Q-values and policy arrays in {arrays_save_file}")
         self.Q_store.save_current_arrays(arrays_save_file)
 
     @staticmethod
@@ -169,7 +176,9 @@ class MonteCarlo:
         rewards : list
             Sequence of rewards achieved by agent in an episode
         """
-        discounted_returns = self.get_discounted_returns(rewards, self.discount)
+        discounted_returns = self.get_discounted_returns(
+            rewards, TrainingParameters.discount
+        )
         first_occurrence = set()
         for idx, (state, action) in enumerate(state_actions):
             if (state, action) not in first_occurrence:
@@ -184,10 +193,12 @@ class MonteCarlo:
                 )
 
                 # Update policy with epsilon probability for random action and additional (1 - epsilon) for greedy action
-                self.Q_store.policy[state_index, :] = self.epsilon / self.num_actions
+                self.Q_store.policy[state_index, :] = (
+                    TrainingParameters.epsilon / self.num_actions
+                )
                 self.Q_store.policy[
                     state_index, np.argmax(self.Q_store.Q_values[state_index, :])
-                ] += (1 - self.epsilon)
+                ] += (1 - TrainingParameters.epsilon)
 
     def get_action(self, state):
         """ Samples action as per action probabilities for the state in policy
@@ -207,13 +218,11 @@ class MonteCarlo:
             p=self.Q_store.policy[self.Q_store.get_index(state), :],
         )
 
-    def execute_policy(self, logger=None, test_episodes=100, render=False):
+    def execute_policy(self, test_episodes=100, render=False):
         """ Run inference in environment using current policy
 
         Parameters
         ----------
-        logger : logging.Logger object, optional
-            Logging object to be used, if not provided, print to stdout, by default None
         test_episodes : int, optional
             Number of test episodes to be simulated, by default 100
         render : bool, optional
@@ -224,12 +233,11 @@ class MonteCarlo:
         float
             Mean and std of rewards obtained by agent over number of test episodes specified
         """
-        print_fn = logger.info if logger else print
         # Blackjack environment doesnt have default render, so additional print statements are used
         use_black_jack = (self.env.spec._env_name == "Blackjack") if render else False
 
-        rewards = []
-        for _ in range(test_episodes):
+        rewards = np.zeros(test_episodes)
+        for test_episode in range(test_episodes):
             curr_episode_reward = 0
             state = self.env.reset()
             if use_black_jack:
@@ -243,7 +251,7 @@ class MonteCarlo:
                     self.env.render()
                 if state not in self.Q_store.state_map:
                     # Use random action for unknown state
-                    print_fn("Unknown state encountered, using random action")
+                    self.print_fn("Unknown state encountered, using random action")
                     action = self.env.action_space.sample()
                 else:
                     action = np.argmax(
@@ -258,12 +266,12 @@ class MonteCarlo:
                         f" {'with' if state[2] else 'without'} usable ace"
                     )
                 curr_episode_reward += reward
-            rewards.append(curr_episode_reward)
+            rewards[test_episode] = curr_episode_reward
             if use_black_jack:
                 print(f"Episode finished with total reward of {curr_episode_reward}\n")
-
-        rewards = np.array(rewards)
-        return np.mean(rewards), np.std(rewards)
+        self.print_fn(
+            f"Mean reward {np.mean(rewards)} with std of {np.std(rewards)} obtained for {test_episodes} test episodes"
+        )
 
 
 def parse_arguments():
@@ -331,6 +339,11 @@ def setup_logging(logger_file_path):
     return logger
 
 
+config_parameters = parse_config("config/config.yml")
+TrainingParameters = config_parameters.Training
+Directories = config_parameters.Directories
+
+
 if __name__ == "__main__":
 
     TIMESTAMP = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
@@ -342,8 +355,7 @@ if __name__ == "__main__":
     args = parse_arguments().parse_args()
 
     env = gym.make(args.environment_name)
-    mcagent = MonteCarlo(env, args)
+    mcagent = MonteCarlo(env, args, logger)
     if not args.test_decision:
-        mcagent.simulate_episodes(logger)
-    mean, std = mcagent.execute_policy(logger=logger, render=args.render_decision)
-    logger.info(f"Mean reward {mean} with std of {std} obtained for test")
+        mcagent.simulate_episodes()
+    mcagent.execute_policy(render=args.render_decision)

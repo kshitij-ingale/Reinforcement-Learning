@@ -2,7 +2,10 @@
 import argparse, gym, logging, os
 import matplotlib.pyplot as plt
 import numpy as np
-
+import sys
+if os.path.abspath('../') not in sys.path:
+    sys.path.append(os.path.abspath('../'))
+from utils.utils import parse_config
 
 def evaluate_policy(
     ValueFunction, discount, policy=None, policy_iteration=True, asynchronous=False
@@ -200,26 +203,26 @@ def run_DP_algorithm(parameters, logger=None):
     policy = np.zeros((env.observation_space.n, env.action_space.n))
     print_fn(f"Training agent using {algorithm} in {env_mode} Frozen Lake environment")
     if parameters.run_value_iteration:
-        MaxUpdate = parameters.tolerance + 1
+        MaxUpdate = Training_parameters.tolerance + 1
         num_iterations = 0
         # Calculate value function of states
-        while MaxUpdate > parameters.tolerance:
+        while MaxUpdate > Training_parameters.tolerance:
             UpdatedValueFunction = evaluate_policy(
                 ValueFunction.copy(),
-                parameters.discount,
+                Training_parameters.discount,
                 policy_iteration=False,
-                asynchronous=parameters.asynchronous,
+                asynchronous=Training_parameters.asynchronous,
             )
             MaxUpdate = np.max(np.abs(ValueFunction - UpdatedValueFunction))
             ValueFunction = UpdatedValueFunction
             num_iterations += 1
-            if num_iterations == parameters.max_iterations:
+            if num_iterations == Training_parameters.max_iterations:
                 raise TimeoutError(
-                    f"Value Function failed to converge after {parameters.max_iterations} iterations"
+                    f"Value Function failed to converge after {Training_parameters.max_iterations} iterations"
                 )
         print_fn(f"Value iteration required {num_iterations} steps to converge")
         # Obtain greedy policy based on calculated value functions
-        policy, _ = improve_policy(ValueFunction, policy, parameters.discount)
+        policy, _ = improve_policy(ValueFunction, policy, Training_parameters.discount)
     else:
         # Initialize random policy
         np.put_along_axis(
@@ -234,22 +237,22 @@ def run_DP_algorithm(parameters, logger=None):
         while not PolicyConverged:
             # Policy Evaluation step
             num_iterations = 0
-            MaxUpdate = parameters.tolerance + 1
-            while (MaxUpdate > parameters.tolerance) and (
-                num_iterations < parameters.max_iterations
+            MaxUpdate = Training_parameters.tolerance + 1
+            while (MaxUpdate > Training_parameters.tolerance) and (
+                num_iterations < Training_parameters.max_iterations
             ):
                 UpdatedValueFunction = evaluate_policy(
                     ValueFunction.copy(),
-                    parameters.discount,
+                    Training_parameters.discount,
                     policy,
-                    asynchronous=parameters.asynchronous,
+                    asynchronous=Training_parameters.asynchronous,
                 )
                 MaxUpdate = np.max(np.abs(UpdatedValueFunction - ValueFunction))
                 ValueFunction = UpdatedValueFunction
                 num_iterations += 1
             # Policy Improvement step
             policy, PolicyConverged = improve_policy(
-                ValueFunction, policy, parameters.discount
+                ValueFunction, policy, Training_parameters.discount
             )
     # Run inference in environment using policy learnt by DP
     execute_policy(policy, print_fn, render=parameters.render_decision)
@@ -288,36 +291,13 @@ def parse_arguments():
         help="Train using value iteration (policy iteration used if not set)",
     )
     parser.add_argument(
-        "--a",
-        dest="asynchronous",
-        action="store_true",
-        help="Evaluate policy in asynchronous mode",
-    )
-    parser.add_argument(
-        "--it",
-        dest="max_iterations",
-        default=10000,
-        type=int,
-        help="Max number of iterations for updating value function",
-    )
-    parser.add_argument(
-        "--g", dest="discount", default=0.9, type=float, help="Discount factor"
-    )
-    parser.add_argument(
-        "--t",
-        dest="tolerance",
-        default=0.01,
-        type=float,
-        help="Tolerance for updating value function",
-    )
-    parser.add_argument(
         "--dir",
         dest="save_dir",
         default="output",
         type=str,
         help="Directory to save artifacts",
     )
-    return parser.parse_args()
+    return parser
 
 
 def setup_logging(logger_file_path):
@@ -352,7 +332,9 @@ def setup_logging(logger_file_path):
 
 
 if __name__ == "__main__":
-    args = parse_arguments()
+    config_parameters = parse_config('config.yml')
+    Training_parameters = config_parameters.Training
+    args = parse_arguments().parse_args()
     os.makedirs(args.save_dir, exist_ok=True)
     logger = setup_logging(os.path.join(args.save_dir, "DP_algorithm.log"))
     with gym.make(args.environment_name, is_slippery=(not args.deterministic)) as env:

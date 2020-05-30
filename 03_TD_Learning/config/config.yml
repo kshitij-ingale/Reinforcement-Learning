@@ -1,0 +1,18 @@
+Training:
+  discount: 0.9                 # Discount factor for future returns      
+  learning_rate: 0.5            # Learning rate fpr updating Q-values
+  # Exploration probability will be exponentially decayed with decay_rate
+  # or linearly over decay_steps from initial_epsilon to final_epsilon
+  initial_epsilon: 1
+  final_epsilon: 0
+  # decay_steps: 10000
+  decay_rate: 0.5
+  test_episodes: 100            # Number of test episodes to be used for evaluating agent performance
+  test_frequency: 100           # Test learnt policy after every 'test_frequency' episodes during training
+  video_save_frequency: null    # Save videos at every 'video_save_frequency' episodes out of test_episodes in evaluation step (during training), no video saved if set to null
+  use_Q_learning: True          # Use Q-learning algorithm else use SARSA algorithms
+Inference:
+  video_save_frequency : 20     # Save videos at every 'video_save_frequency' episodes out of test_episodes when running inference
+Directories:
+  output: "output/"             # Directory to store output artifacts, videos and logs in time stamped run
+  arrays: 'arrays/'             # Directory to save Q-value arrays

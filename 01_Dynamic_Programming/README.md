@@ -9,7 +9,7 @@ Following command can be used to train agent using policy iteration with default
 ```
 python value_policy_iteration.py
 ```
-Command line arguments can be used to specify parameters (or value iteration algorithm) which can be explored with `--h`
+Frequently used parameters can be provided by command line (run script with `-h` to know more) while other training parameters are read from `config.yml` file
 
 ## Results and discussion
 This implementation involved learning deterministic policies for FrozenLake (gym) environment. In deterministic mode of environment, i.e. without any frozen blocks, the agent was able to solve the environment. Following is the policy learnt in 4x4 deterministic frozen lake environment.  
