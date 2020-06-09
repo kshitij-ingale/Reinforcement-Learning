@@ -18,6 +18,23 @@ from utils.utils import parse_config
 
 class PolicyGrad:
     def __init__(self, env, parameters, logger=None):
+        """ Policy gradients agent instance
+
+        Parameters
+        ----------
+        env : gym environment instance
+            Environment to be used for training or inference
+        parameters : argparse.namespace
+            CLI arguments provided as input through argparse
+        logger : logging.Logger, optional
+            logging instance to be used for writing logs to 
+            file and stdout, by default None
+
+        Raises
+        ------
+        NotImplementedError
+            If continuous actions environment is provided
+        """
         # Gym environment parameters
         self.env_name = parameters.environment_name
         self.env = env
@@ -93,6 +110,15 @@ class PolicyGrad:
                 )
 
     def simulate_episode_for_reinforce(self):
+        """ Simulate episode in environment and store states, actions and rewards
+        REINFORCE will use Monte Carlo returns so use this function to store all 
+        data
+
+        Returns
+        -------
+        list
+            Lists containing states encountered, actions performed and rewards obtained
+        """
         states, actions, rewards = [], [], []
         done = False
         state = self.env.reset()
@@ -109,6 +135,21 @@ class PolicyGrad:
 
     @staticmethod
     def get_discounted_returns(rewards, discount):
+        """ Returns discounted future rewards from each state for a given sequence of 
+        rewards
+
+        Parameters
+        ----------
+        rewards : list
+            Sequence of rewards while simulating an episode
+        discount : float
+            Discount factor for future returns
+
+        Returns
+        -------
+        numpy.ndarray
+            Discounted future returns for each state in episode
+        """
         discounted_rewards = np.zeros((len(rewards), 1), dtype=np.float32)
         discounted_rewards[-1] = rewards[-1]
         for i in range(len(rewards) - 2, -1, -1):
@@ -116,6 +157,16 @@ class PolicyGrad:
         return discounted_rewards
 
     def simulate_episode_for_ac(self):
+        """ Simulate episode in environment and obtain states, actions and rewards
+        Actor critic uses n-step returns which would use discounted returns for n steps
+        and bootstrap using (discounted) next state value function
+
+        Returns
+        -------
+        list
+            Lists containing states encountered, actions performed and value functions 
+            as per n-step discounted returns
+        """
         states, actions, rewards, value_function_targets = [], [], [], []
         done = False
         state = self.env.reset()
@@ -168,6 +219,8 @@ class PolicyGrad:
         return states, actions, value_function_targets
 
     def train(self):
+        """ Train agent using REINFORCE or Actor critic algorithm
+        """
         tensorboard_dir = os.path.join(Directories.output, "tensorboard")
         tensorboard_file_writer = tf.summary.create_file_writer(tensorboard_dir)
         if TrainingParameters.use_baseline:
@@ -233,7 +286,9 @@ class PolicyGrad:
                 states = tf.convert_to_tensor(states, dtype=tf.float32)
                 actions = tf.convert_to_tensor(actions)
                 if tf.is_tensor(value_function_targets[0]):
-                    value_function_targets = tf.concat(values=value_function_targets, axis=0)
+                    value_function_targets = tf.concat(
+                        values=value_function_targets, axis=0
+                    )
                 else:
                     """
                     If using MC returns (using high value of n in n-step return), convert floats 
@@ -289,14 +344,24 @@ class PolicyGrad:
                 # Test policy as per test frequency
                 if episode % self.test_frequency == 0:
                     if episode % self.render_frequency == 0:
-                        mean_test_reward, std_test_reward = self.execute_policy(
+                        (
+                            mean_test_reward,
+                            std_test_reward,
+                            max_test_reward,
+                            min_test_reward,
+                        ) = self.execute_policy(
                             current_training_episode=episode,
                             test_episodes=self.test_episodes,
                             render=self.render_decision,
                             save_frequency=TrainingParameters.video_save_frequency,
                         )
                     else:
-                        mean_test_reward, std_test_reward = self.execute_policy(
+                        (
+                            mean_test_reward,
+                            std_test_reward,
+                            max_test_reward,
+                            min_test_reward,
+                        ) = self.execute_policy(
                             test_episodes=self.test_episodes, render=False
                         )
                     self.print_fn(
@@ -307,6 +372,12 @@ class PolicyGrad:
                     std_test_rewards.append(std_test_reward)
                     tf.summary.scalar(
                         "Mean rewards over 100 episodes", mean_test_reward, step=episode
+                    )
+                    tf.summary.scalar(
+                        "Max rewards over 100 episodes", max_test_reward, step=episode
+                    )
+                    tf.summary.scalar(
+                        "Min rewards over 100 episodes", min_test_reward, step=episode
                     )
 
             # Save model as per model_save_frequency
@@ -327,7 +398,11 @@ class PolicyGrad:
 
         plt.figure(figsize=(15, 10))
         episodes = list(
-            range(0, self.train_episodes + 1, TrainingParameters.test_frequency)
+            range(
+                self.starting_episode,
+                self.starting_episode + self.train_episodes + 1,
+                self.test_frequency,
+            )
         )
         plt.errorbar(x=episodes, y=mean_test_rewards, yerr=std_test_rewards)
         plt.xlabel("Number of episodes")
@@ -360,19 +435,19 @@ class PolicyGrad:
         float
             Mean and std of rewards obtained by agent over number of test episodes specified
         """
-        if save_frequency:
+        if render and save_frequency:
 
             def video_frequency(x):
                 return x % save_frequency == 0
 
             if self.test_only:
                 video_save_path = os.path.join(
-                    Directories.output, f"{self.env}_test_videos"
+                    Directories.output, f"{self.env_name}_test_videos"
                 )
             else:
                 video_save_path = os.path.join(
                     Directories.output,
-                    f"{self.env}_Training_progress_videos/{current_training_episode}",
+                    f"{self.env_name}_Training_progress_videos/{current_training_episode}",
                 )
             self.env = gym.wrappers.Monitor(
                 self.env, video_save_path, video_callable=video_frequency, force=True
@@ -392,7 +467,7 @@ class PolicyGrad:
                 state, reward, done, _ = self.env.step(action)
                 curr_episode_reward += reward
             rewards[test_episode] = curr_episode_reward
-        return np.mean(rewards), np.std(rewards)
+        return np.mean(rewards), np.std(rewards), np.max(rewards), np.min(rewards)
 
 
 def parse_arguments():
@@ -478,18 +553,27 @@ def setup_logging(logger_file_path):
 
 
 def run_agent(args, logger=None):
+    """ Run agent training or inference
 
+    Parameters
+    ----------
+    args : argparse.Namespace
+        CLI arguments provided as input through argparse
+    logger : logging.Logger, optional
+        logging instance to be used for writing logs to 
+        file and stdout, by default None
+    """
     with gym.make(args.environment_name) as env:
         agent = PolicyGrad(env, args, logger)
         if not args.test_decision:
             agent.train()
             test_episodes = agent.test_episodes
-            mean_reward, std_reward = agent.execute_policy(
+            mean_reward, std_reward, _, _ = agent.execute_policy(
                 test_episodes=test_episodes, render=args.render_decision
             )
         else:
             test_episodes = args.num_episodes
-            mean_reward, std_reward = agent.execute_policy(
+            mean_reward, std_reward, _, _ = agent.execute_policy(
                 test_episodes=test_episodes,
                 render=args.render_decision,
                 save_frequency=InferenceParameters.video_save_frequency,

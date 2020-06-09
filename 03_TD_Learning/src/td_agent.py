@@ -146,7 +146,7 @@ class TDL:
         )
 
         # Save Q-values calculated
-        arrays_save_file = os.path.join(Directories.arrays, f"{base_fname}_arrays.pkl")
+        arrays_save_file = os.path.join(Directories.output, f"{base_fname}_arrays.pkl")
         self.print_fn(f"Saving Q-values in {arrays_save_file}")
         data_to_be_saved = {"Qvalues": self.Q_values, "statemap": self.state_idx_map}
         with open(arrays_save_file, "wb") as f:

@@ -45,7 +45,7 @@ class DenseBlock(tf.keras.layers.Layer):
 
 
 class Net(tf.keras.Model):
-    def __init__(self, state_dim, action_dim, net_params, name):
+    def __init__(self, state_dim, action_dim, net_params, name, duel):
         """ Creates tf.keras model by building neural network from 
         configuration specified in yml file
 
@@ -57,9 +57,12 @@ class Net(tf.keras.Model):
             Number of possible (discrete) actions
         net_params : OD (dict)
             Model configuration specifed in yml file in the form of 
-            object dictionary (inherits from dict)
+            object dictionary (inherits dict)
         name : str
             Name for the tf.keras model
+        duel : bool
+            Use dueling networks with separate branch for value and 
+            advantage function
         """
         super().__init__(name=name)
         self.hidden_layers = []
@@ -71,29 +74,23 @@ class Net(tf.keras.Model):
                     activation=getattr(tf.nn, net_params.activation),
                 )
             )
-        output_layer = tf.keras.layers.Dense(action_dim)
-        self.hidden_layers.append(output_layer)
+        self.duel = duel
+        if self.duel:
+            self.value = tf.keras.layers.Dense(1, )
+            self.advantage = tf.keras.layers.Dense(action_dim)
+        else:
+            self.output_layer = tf.keras.layers.Dense(action_dim)
 
     def call(self, x):
         for layer in self.hidden_layers:
             x = layer(x)
+        if self.duel:
+            value_fn = self.value(x)
+            advantage_fn = self.advantage(x)
+            x = value_fn + (advantage_fn - tf.reduce_mean(advantage_fn))
+        else:
+            x = self.output_layer(x)
         return x
-
-    def get_action_probabilities(self, inputs):
-        """ Policy network outputs logits by default, this function can be used to
-        apply softmax to obtain probabilities
-
-        Parameters
-        ----------
-        inputs : tf.Tensor
-            State vector obtained from environment
-
-        Returns
-        -------
-        tf.Tensor
-            Probabilities after applying softmax to model output
-        """
-        return tf.nn.softmax(self.call(inputs))
 
     def print_summary(self, state_dim):
         """ Prints keras model summary (only used for debug)
@@ -105,29 +102,6 @@ class Net(tf.keras.Model):
         """
         x = tf.keras.Input(shape=(state_dim,))
         print(tf.keras.Model(inputs=[x], outputs=self.call(x)).summary())
-
-
-def policy_gradient_loss(action_logits, actions, discounted_returns):
-    """ Calculates loss for obtaining policy gradients 
-
-    Parameters
-    ----------
-    action_logits : tf.Tensor
-        Logits corresponding to actions output from model
-    actions : tf.Tensor
-        Actions corresponding to model output, executed by agent in environment
-    discounted_returns : tf.Tensor
-        Future discounted rewards obtained by agent while performing the actions
-
-    Returns
-    -------
-    tf.Tensor
-        Policy gradients in the form of loss for the policy network
-    """
-    probabilities_sum = tf.nn.sparse_softmax_cross_entropy_with_logits(
-        logits=action_logits, labels=actions
-    )
-    return tf.reduce_mean(discounted_returns * probabilities_sum)
 
 
 def state_function_estimator_loss(PredictedQvalues, targets):
@@ -148,38 +122,9 @@ def state_function_estimator_loss(PredictedQvalues, targets):
     return tf.reduce_mean(tf.keras.losses.mean_squared_error(PredictedQvalues, targets))
 
 
-@tf.function(experimental_relax_shapes=True)
-def policy_net_train_step(model, optimizer, states, discounted_returns, actions):
-    """ Training step for policy network
 
-    Parameters
-    ----------
-    model : tf.keras.Model
-        Policy network model
-    optimizer : tf.keras.optimizers
-        Optimizer for policy network gradient update step
-    states : tf.Tensor
-        Batch of state vectors obtained from environment
-    discounted_returns : tf.Tensor
-        Batch of future discounted rewards obtained by agent while performing the actions
-    actions : tf.Tensor
-        Batch of actions executed by agent in environment
-
-    Returns
-    -------
-    tf.Tensor
-        Policy gradients in the form of loss for the policy network
-    """
-    with tf.GradientTape() as tape:
-        action_logits = model(states)
-        loss_value = policy_gradient_loss(action_logits, actions, discounted_returns)
-    gradients = tape.gradient(loss_value, model.trainable_variables)
-    optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-    return loss_value
-
-
-@tf.function(experimental_relax_shapes=True)
-def state_function_estimator_train_step(model, optimizer, states, targets):
+@tf.function
+def train_step(model, optimizer, states, targets):
     """ Training step for state value function estimator network
 
     Parameters
@@ -205,3 +150,22 @@ def state_function_estimator_train_step(model, optimizer, states, targets):
     gradients = tape.gradient(loss_value, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
     return loss_value
+
+def update_target_model(current_model, target_model, smoothing=1.0):
+    """ Update variables of target model with values of current model
+    For stable training, target QNet model is not updated for some steps so that target Q-values for QNet model
+    are not changing
+
+    Parameters
+    ----------
+    current_model : tf.keras.Model
+        Current Model of Q-values prediction
+    target_model : tf.keras.Model
+        Target Model of Q-values prediction to be updated
+    smoothing : float
+        Smoothing parameter for soft update of values, default: 1.0
+    """
+    target_model_vars = target_model.trainable_variables
+    current_model_vars = current_model.trainable_variables
+    for target_model_var, current_model_var in zip(target_model_vars, current_model_vars):
+        target_model_var.assign((smoothing * current_model_var) + ((1 - smoothing) * target_model_var))

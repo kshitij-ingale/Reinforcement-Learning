@@ -1,11 +1,14 @@
 """ Script for implementation of Policy and Value iteration algorithm """
-import argparse, gym, logging, os
+import argparse, gym, logging, os, time
 import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 import sys
-if os.path.abspath('../') not in sys.path:
-    sys.path.append(os.path.abspath('../'))
+
+if os.path.abspath("../") not in sys.path:
+    sys.path.append(os.path.abspath("../"))
 from utils.utils import parse_config
+
 
 def evaluate_policy(
     ValueFunction, discount, policy=None, policy_iteration=True, asynchronous=False
@@ -166,8 +169,8 @@ def print_policy(policy, file_base_name, ValueFunction):
     plt.yticks([])
     plt.savefig(f"{file_base_name}_policy.png")
     plt.figure()
-    plt.imshow(ValueFunction.reshape((num_states_single_line, num_states_single_line)))
-    plt.colorbar()
+    sns.heatmap(ValueFunction.reshape((num_states_single_line, num_states_single_line)),annot=True)
+    # plt.colorbar()
     plt.title("Value functions heatmap")
     plt.xticks([])
     plt.yticks([])
@@ -197,32 +200,34 @@ def run_DP_algorithm(parameters, logger=None):
         print_fn = print
     env_mode = "deterministic" if parameters.deterministic else "stochastic"
     algorithm = (
-        "value_iteration" if parameters.run_value_iteration else "policy_iteration"
+        "value_iteration"
+        if TrainingParameters.run_value_iteration
+        else "policy_iteration"
     )
     ValueFunction = np.zeros(env.observation_space.n)
     policy = np.zeros((env.observation_space.n, env.action_space.n))
     print_fn(f"Training agent using {algorithm} in {env_mode} Frozen Lake environment")
-    if parameters.run_value_iteration:
-        MaxUpdate = Training_parameters.tolerance + 1
+    if TrainingParameters.run_value_iteration:
+        MaxUpdate = TrainingParameters.tolerance + 1
         num_iterations = 0
         # Calculate value function of states
-        while MaxUpdate > Training_parameters.tolerance:
+        while MaxUpdate > TrainingParameters.tolerance:
             UpdatedValueFunction = evaluate_policy(
                 ValueFunction.copy(),
-                Training_parameters.discount,
+                TrainingParameters.discount,
                 policy_iteration=False,
-                asynchronous=Training_parameters.asynchronous,
+                asynchronous=TrainingParameters.asynchronous,
             )
             MaxUpdate = np.max(np.abs(ValueFunction - UpdatedValueFunction))
             ValueFunction = UpdatedValueFunction
             num_iterations += 1
-            if num_iterations == Training_parameters.max_iterations:
+            if num_iterations == TrainingParameters.max_iterations:
                 raise TimeoutError(
-                    f"Value Function failed to converge after {Training_parameters.max_iterations} iterations"
+                    f"Value Function failed to converge after {TrainingParameters.max_iterations} iterations"
                 )
         print_fn(f"Value iteration required {num_iterations} steps to converge")
         # Obtain greedy policy based on calculated value functions
-        policy, _ = improve_policy(ValueFunction, policy, Training_parameters.discount)
+        policy, _ = improve_policy(ValueFunction, policy, TrainingParameters.discount)
     else:
         # Initialize random policy
         np.put_along_axis(
@@ -237,28 +242,28 @@ def run_DP_algorithm(parameters, logger=None):
         while not PolicyConverged:
             # Policy Evaluation step
             num_iterations = 0
-            MaxUpdate = Training_parameters.tolerance + 1
-            while (MaxUpdate > Training_parameters.tolerance) and (
-                num_iterations < Training_parameters.max_iterations
+            MaxUpdate = TrainingParameters.tolerance + 1
+            while (MaxUpdate > TrainingParameters.tolerance) and (
+                num_iterations < TrainingParameters.max_iterations
             ):
                 UpdatedValueFunction = evaluate_policy(
                     ValueFunction.copy(),
-                    Training_parameters.discount,
+                    TrainingParameters.discount,
                     policy,
-                    asynchronous=Training_parameters.asynchronous,
+                    asynchronous=TrainingParameters.asynchronous,
                 )
                 MaxUpdate = np.max(np.abs(UpdatedValueFunction - ValueFunction))
                 ValueFunction = UpdatedValueFunction
                 num_iterations += 1
             # Policy Improvement step
             policy, PolicyConverged = improve_policy(
-                ValueFunction, policy, Training_parameters.discount
+                ValueFunction, policy, TrainingParameters.discount
             )
     # Run inference in environment using policy learnt by DP
     execute_policy(policy, print_fn, render=parameters.render_decision)
     file_base_name = f"{parameters.environment_name}_{env_mode}_{algorithm}"
     print_policy(
-        policy, os.path.join(parameters.save_dir, file_base_name), ValueFunction
+        policy, os.path.join(Directories.output, file_base_name), ValueFunction
     )
 
 
@@ -283,19 +288,6 @@ def parse_arguments():
         dest="render_decision",
         action="store_true",
         help="Visualize environment while simulating policy",
-    )
-    parser.add_argument(
-        "--vi",
-        dest="run_value_iteration",
-        action="store_true",
-        help="Train using value iteration (policy iteration used if not set)",
-    )
-    parser.add_argument(
-        "--dir",
-        dest="save_dir",
-        default="output",
-        type=str,
-        help="Directory to save artifacts",
     )
     return parser
 
@@ -331,11 +323,17 @@ def setup_logging(logger_file_path):
     return logger
 
 
+config_parameters = parse_config("config.yml")
+TrainingParameters = config_parameters.Training
+Directories = config_parameters.Directories
+
 if __name__ == "__main__":
-    config_parameters = parse_config('config.yml')
-    Training_parameters = config_parameters.Training
+
+    TIMESTAMP = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
     args = parse_arguments().parse_args()
-    os.makedirs(args.save_dir, exist_ok=True)
-    logger = setup_logging(os.path.join(args.save_dir, "DP_algorithm.log"))
+
+    Directories.output = os.path.join(Directories.output, TIMESTAMP)
+    os.makedirs(Directories.output, exist_ok=True)
+    logger = setup_logging(os.path.join(Directories.output, "DP_algorithm.log"))
     with gym.make(args.environment_name, is_slippery=(not args.deterministic)) as env:
         run_DP_algorithm(args, logger)

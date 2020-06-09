@@ -3,5 +3,4 @@ Training:
     discount: 0.95      # Discount factor for future returns
     test_episodes: 100  # Number of episodes for test
 Directories:
-    arrays: "arrays/"   # Directory to store Q-value arrays for restoring or running MC inference
     output: "output/"   # Directory to store rendered videos and logs

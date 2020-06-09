@@ -15,4 +15,3 @@ Inference:
   video_save_frequency : 20     # Save videos at every 'video_save_frequency' episodes out of test_episodes when running inference
 Directories:
   output: "output/"             # Directory to store output artifacts, videos and logs in time stamped run
-  arrays: 'arrays/'             # Directory to save Q-value arrays

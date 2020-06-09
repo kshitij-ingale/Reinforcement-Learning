@@ -138,7 +138,7 @@ class MonteCarlo:
                 state = next_state
             self.update_q_values_and_policy(state_actions, rewards)
         arrays_save_file = os.path.join(
-            Directories.arrays, f"{self.env.spec._env_name}_arrays.pkl"
+            Directories.output, f"{self.env.spec._env_name}_arrays.pkl"
         )
         self.print_fn(f"Saving Q-values and policy arrays in {arrays_save_file}")
         self.Q_store.save_current_arrays(arrays_save_file)
