@@ -1,0 +1,6 @@
+Training:
+    epsilon: 0.5        # Maximum iterations for updating value function
+    discount: 0.95      # Discount factor for future returns
+    test_episodes: 100  # Number of episodes for test
+Directories:
+    output: "output/"   # Directory to store rendered videos and logs

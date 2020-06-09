@@ -1,0 +1,9 @@
+Training:
+    asynchronous: False         # Evaluate policy in asynchronous mode
+    max_iterations: 10000       # Maximum iterations for updating value function
+    discount: 0.9               # Discount factor for future returns
+    tolerance: 0.01             # Tolerance for updating value function
+    run_value_iteration: True   # Run value iteration algorithm when True else run policy iteration
+
+Directories:
+    output: "output"            # Directory to store output artifacts
