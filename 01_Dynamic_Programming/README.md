@@ -14,6 +14,6 @@ Environment related arguments like environment name, rendering and deterministic
 ## Results and discussion
 For this implementation, Frozen Lake environment was chosen for testing. It was expected that agent should be able to solve the deterministic version (no frozen blocks). Following was the policy learnt by agent and it can be seen that the agent manages to reach the goal state. 
 
-{add image}
+![Policy learnt by agent](../assets/Dynamic_programming/FrozenLake-v0_deterministic_policy_iteration_policy.png)
 
 Note that a stochastic environment will randomly yield next states from the frozen positions and so agent fails to learn a deterministic policy that can consistently solve the environment.

@@ -28,4 +28,4 @@ pytest src/test.py
 ```
 
 ## Results and discussion
-For this implementation, blackjack environment was used to analyse performance. The jupyter notebook explores the value fucntions as well as the policy learnt by the agent 
+For this implementation, blackjack environment was used to analyse performance. The jupyter notebook explores the value functions as well as the policy learnt by the agent 

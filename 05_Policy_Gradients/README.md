@@ -38,18 +38,21 @@ The acrobot system includes two joints and two links, where the joint between th
 The acrobot environment consists of 2 links that can move about a joint. The agent attempts to raise the lowest point of the system to the goal position. As per wiki, "it does not have a specified reward threshold at which it's considered solved", but the trained agent seemed to attain the average best-100 epsiode performance reported on the leaderboard. 
 This environment was trained using REINFORCE with baseline
 The progress of the agent is indicated by the following graph which plots average rewards obtained over 100 episodes with standard deviation against number of episodes that the agent is trained for.
-{add acrobot image}
+![Acrobot progress](../assets/REINFORCE/Acrobot_performance.png)  
 
 The video snaps of the agent interacting with acrobot is indicated by the following gif.  
-{add acrobot gif}
+![Acrobot video](../assets/REINFORCE/Acrobot.gif)  
 In the beginning, the agent has a random policy and it moves the link in just one direction. Later the agent learns a suboptimal policy and so it takes more iterations. Finally, the agent seems to be completing the task in fewer iterations.
 
 
-The lunarlander environment involves the agent attempting to land the lunarlander in the specified region. This agent was trained with actor-critic algorithm.
+The lunarlander environment involves the agent attempting to land the lunarlander in the specified region. This agent was trained with actor-critic algorithm. This environment is considered solved after getting reward of 200.
 
 The progress of the agent is indicated by the following graph which plots average rewards obtained over 100 episodes with standard deviation against number of episodes that the agent is trained for.
-{add lunarlander image}
+![Lunarlander progress](../assets/Actor_critic/LunarLander_Performance.png)  
+
 
 The video snaps of the agent interacting with acrobot is indicated by the following gif.  
-{add lunarlander gif}
+![Lunarlander video](../assets/Actor_critic/LunarLander.gif)  
+
+
 In the beginning, agent has random policy and so it just crashes the lander. After some training, it learns to fire the engine but still struggles to land it properly. Later, the agent seems to be able to control the lander but fails to land in the specified area. Finally, the agent learns the optimal policy to land in the specified area.

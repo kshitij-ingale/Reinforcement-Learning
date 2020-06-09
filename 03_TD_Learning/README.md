@@ -31,4 +31,4 @@ pytest src/test.py
 ## Results and discussion
 This implementation used the taxi environment to evaluate performance. The task to pick-up passenger from a destination (indicated by blue) and drop them off at another location (indicated by magenta). The agent gets a reward of +20 for dropping passenger off at correct location and -1 for any action with exception of illegal drop-off and pick-up yielding reward of -10. As it can be seen in the following gif that the agent learns the policy to complete this task
 
-{add gif}
+![Taxi policy](../assets/TD_Learning/taxi.gif)

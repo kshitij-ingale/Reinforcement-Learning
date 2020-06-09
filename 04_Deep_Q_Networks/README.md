@@ -30,16 +30,17 @@ pytest src/test.py
 This implementation used the CartPole and MountainCar (discrete) environment to evaluate performance. 
 The agent attempts to balance the pole by moving the cart in CartPole environment. The agent gets a reward of +1 for every step the pole is upright and the episode ends if the pole is more than 15 degrees from vertical or the cartpole moves out of the fixed region. The wiki defines "solving" CartPole as getting average reward of 195.0 over 100 consecutive trials. 
 The progress of the agent is indicated by the following graph which plots average rewards obtained over 100 episodes against number of episodes that the agent is trained for.
-{add image}
+![CartPole progress](../assets/DQN/CartPole_performance.png)
 
 The video snaps of the agent learning to balance the cartpole is indicated by the following gif.  
-{add CartPole gif}
+![CartPole video](../assets/DQN/CartPole.gif)  
 In the beginning, the pole collapses, later, the agent starts moving the cart in just one direction which results in either the pole falling off or the cart moving out of the fixed region. Finally, the agent learns to balance the pole for the required time.
 
 
 In mountaincar, agent tries to reach top of the mountain with a car having a less powerful engine. The car cannot just accelerate and reach the top and hence has to acquire some momentum first to reach the goal eventually. The agent receives a reward of -1 for a time step until it manages to reach goal position of 0.5 and the episodee ends if goal is reached or 200 time steps have finished. The wiki defines "solving" MountainCar as getting average reward of -110.0 over 100 consecutive trials.
 The video snaps of the agent learning to balance the cartpole is indicated by the following gif.  
-{add MountainCar gif}
+
+![MountainCar video](../assets/DQN/MountainCar.gif)  
 
 In the beginning, the car just keeps firing engine to climb onto one side of mountain. Later, the agent learns to move back and forth but struggles to build the required momentum. Later the agent manages to reach the goal position, but the policy seems to be sub-optimal (as it acquires excessive momentum by reaching top of left side mountain). Finally, agent learns to get to the goal with just enough momentum.   
 Note about mountaincar environment: The reward function for this environment is like a sparse reward function which makes it difficult for agent to learn.The agent relies completely on exploration through random actions to move towards the goal. 
