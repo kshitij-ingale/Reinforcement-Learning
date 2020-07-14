@@ -3,16 +3,16 @@ Network:                            # Neural network parameters
         hidden_units: [32, 32]      # Number of hidden units (len(hidden_units) will be number of layers)
         normalization: null         # Normalizing layer outputs with batch norm ['batch', 'instance', null], set null for no normalization
         activation: 'leaky_relu'    # Activation function to be used (it should match with some function in tensorflow.nn module)
-        learning_rate: 1e-2         # Learning rate for this network
-        lr_decay_rate: 0.5          # Decay rate for learning rate
-        lr_decay_steps: 1000        # Decay learning rate after lr_decay_steps steps (episodes)
+        learning_rate: 1e-3         # Learning rate for this network
+        lr_decay_rate: 0.8          # Decay rate for learning rate
+        lr_decay_steps: 3000        # Decay learning rate after lr_decay_steps steps (episodes)
     state_function_estimator:       # Baseline (or critic) network parameters
-        hidden_units: [16, 16]      # Number of hidden units (len(hidden_units) will be number of layers)
+        hidden_units: [32, 32]      # Number of hidden units (len(hidden_units) will be number of layers)
         normalization: null         # Normalizing layer outputs with batch norm ['batch', 'instance', null], set null for no normalization
         activation: 'leaky_relu'    # Activation function to be used (it should match with some function in tensorflow.nn module)
-        learning_rate: 5e-3         # Learning rate for this network
-        lr_decay_rate: 0.5          # Decay rate for learning rate
-        lr_decay_steps: 1000        # Decay learning rate after lr_decay_steps steps (episodes)
+        learning_rate: 1e-3         # Learning rate for this network
+        lr_decay_rate: 0.8          # Decay rate for learning rate
+        lr_decay_steps: 3000        # Decay learning rate after lr_decay_steps steps (episodes)
 
 Training:                           # Parameters for training agent
     discount: 0.99                  # Discount factor for future returns
@@ -21,10 +21,10 @@ Training:                           # Parameters for training agent
     render_frequency: 100           # Render agent's interaction in environment after ever 'render_frequency' episodes during training
     video_save_frequency: null      # Save videos at every 'video_save_frequency' episodes out of test_episodes in evaluation step (during training), no video saved if set to null
     model_save_frequency: 100       # Save model weights after every 'model_save_frequency' episodes during training
-    use_REINFORCE: False            # Use REINFORCE algorithm for training agent, use Actor-critic if set to False
-    use_baseline: False             # Use baseline along with REINFORCE for less variance (Actor-critic will set this to True)
-    n_step_bootstrap: 15            # Use n-step bootstrapping for value function targets in actor-critic
+    max_timesteps: 10
+    epochs_per_iteration: 10
     entropy_weight: 1e-3            # Weighing factor for entropy based loss to encourage exploration
+    pi_ratio: 0.1
 
 Inference:                          # Parameters for running inference
     video_save_frequency: 20        # Save videos at every 'video_save_frequency' episodes out of test_episodes, no video saved if set to null

@@ -4,7 +4,7 @@ import pytest
 import numpy as np
 import tensorflow as tf
 from network import Net
-from pg_agent import PolicyGrad, parse_arguments, TrainingParameters
+from ppo_agent import PPO, parse_arguments, TrainingParameters
 
 
 def test_network_generation():
@@ -24,27 +24,6 @@ def test_network_generation():
     assert output.shape == (1, 2)
     tf.debugging.assert_type(output, tf.float32)
     
-@pytest.fixture
-def reinforce():
-    args = parse_arguments().parse_args(["--e", "CartPole-v0", "--ep", "1"])
-    env = gym.make(args.environment_name)
-    TrainingParameters.use_REINFORCE = True
-    TrainingParameters.use_baseline = False
-    reinforce = PolicyGrad(env, args)
-    yield reinforce
-    env.close()
-
-
-@pytest.fixture
-def reinforce_with_baseline():
-    args = parse_arguments().parse_args(["--e", "CartPole-v0", "--ep", "1"])
-    env = gym.make(args.environment_name)
-    TrainingParameters.use_REINFORCE = True
-    TrainingParameters.use_baseline = True
-    reinforce_with_baseline = PolicyGrad(env, args)
-    yield reinforce_with_baseline
-    env.close()
-
 
 @pytest.fixture
 def actor_critic():

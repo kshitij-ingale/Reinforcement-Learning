@@ -100,7 +100,6 @@ class Net(tf.keras.Model):
         get action from the action probabilities (or distribution) predicted by 
         model
 
-
         Parameters
         ----------
         inputs : tf.Tensor
@@ -146,14 +145,33 @@ class Net(tf.keras.Model):
         print(tf.keras.Model(inputs=[x], outputs=self.call(x)).summary())
 
 
+def calculate_likelihood(continuous_action_space, action_logits, actions):
+    entropy = None
+    if continuous_action_space:
+        mean, logvar = action_logits
+        logvar = tf.clip_by_value(logvar, -10, 5)
+        likelihood = -0.5 * (
+            logvar
+            + tf.math.log(2.0 * math.pi)
+            + (tf.math.square(actions - mean) / (tf.math.exp(logvar)))
+        )
+        entropy = tf.reduce_mean(0.5 * (1 + tf.math.log(2.0 * math.pi) + logvar))
+    else:
+        likelihood = -tf.nn.sparse_softmax_cross_entropy_with_logits(
+            logits=action_logits, labels=actions
+        )
+    return likelihood, entropy
+
+
 def policy_gradient_loss(
     action_logits,
     actions,
     discounted_returns,
-    continuous_action_space=False,
-    entropy_weight=1e-3,
+    continuous_action_space,
+    pi_theta_old,
+    entropy_weight,
+    pi_ratio,
 ):
-
     """ Calculates loss for obtaining policy gradients. For this loss, we want predicted action probabilities
     to correspond to actual actions performed. So, we maximize likelihood of the predicted actions to be from 
     actual action distribution. Finally, advantage function is multiplied so that agent can learn which actions
@@ -171,36 +189,23 @@ def policy_gradient_loss(
     continuous_action_space : bool, optional
         Environment has continuous action space modeled with gaussian distributions, 
         accordingly loss will be computed with gaussian pdf, by default False
-    entropy_weight : tf.Tensor (float), optional
-        Weighing factor for entropy based loss, by default 1e-3
 
     Returns
     -------
     tf.Tensor
         Policy gradients in the form of loss for the policy network
     """
-    entropy = None
-    if continuous_action_space:
-        """ For continuous action space, we have distribution of predicted action and actual action 
-        performed. So, in order to bring the predicted and actual distribution closer, we maximize 
-        likelihood of actual actions (actual action vector) being from predicted distribution. 
-        For loss term, we minimize negative of this term """
-        mean, logvar_ = action_logits
-        logvar = tf.clip_by_value(logvar_, -10, 5)
-        likelihood = -0.5 * (
-            logvar
-            + tf.math.log(2.0 * math.pi)
-            + (tf.math.square(actions - mean) / (tf.math.exp(logvar)))
+    likelihood, entropy = calculate_likelihood(
+        continuous_action_space, action_logits, actions
+    )
+    new_to_old_policy_ratio = tf.exp(likelihood - pi_theta_old + 1e-6)
+    loss = -tf.reduce_mean(
+        tf.math.minimum(
+            new_to_old_policy_ratio * discounted_returns,
+            tf.clip_by_value(new_to_old_policy_ratio, 1 - pi_ratio, 1 + pi_ratio)
+            * discounted_returns,
         )
-        entropy = tf.reduce_mean(0.5 * (1 + tf.math.log(2.0 * math.pi) + logvar))
-        log_prob_term = -(likelihood)
-    else:
-        """ For discrete actions, maximizing likelihood is equivalent to minimizing cross entropy
-        between the actual discrete action distribution and predicted actions """
-        log_prob_term = tf.nn.sparse_softmax_cross_entropy_with_logits(
-            logits=action_logits, labels=actions
-        )
-    loss = tf.reduce_mean(discounted_returns * log_prob_term)
+    )
     if entropy is not None:
         loss += entropy_weight * entropy
     return loss, entropy
@@ -226,7 +231,14 @@ def state_function_estimator_loss(PredictedQvalues, targets):
 
 @tf.function(experimental_relax_shapes=True)
 def policy_net_train_step(
-    model, optimizer, states, discounted_returns, actions, entropy_weight
+    model,
+    optimizer,
+    states,
+    discounted_returns,
+    actions,
+    pi_theta_old,
+    entropy_weight,
+    pi_ratio,
 ):
     """ Training step for policy network
 
@@ -242,8 +254,6 @@ def policy_net_train_step(
         Batch of future discounted rewards obtained by agent while performing the actions
     actions : tf.Tensor
         Batch of actions executed by agent in environment
-    entropy_weight : tf.Tensor (float)
-        Weighing factor for entropy based loss
 
     Returns
     -------
@@ -257,7 +267,9 @@ def policy_net_train_step(
             actions,
             discounted_returns,
             model.continuous_action_space,
+            pi_theta_old,
             entropy_weight,
+            pi_ratio,
         )
     gradients = tape.gradient(loss_value, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
