@@ -3,22 +3,23 @@ import argparse, gym, os, time, logging, random
 import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
-
-plt.style.use("dark_background")
+from collections import deque
+from tqdm import tqdm
 from network import (
     Net,
     policy_net_train_step,
     state_function_estimator_train_step,
     calculate_likelihood,
 )
-
-np.random.seed(42)
-from tqdm import tqdm
 import sys
 
 if os.path.abspath("../") not in sys.path:
     sys.path.append(os.path.abspath("../"))
+
 from utils.utils import parse_config
+
+plt.style.use("dark_background")
+np.random.seed(42)
 
 
 class PPO:
@@ -39,7 +40,7 @@ class PPO:
         self.env_name = parameters.environment_name
         self.env = env
         self.state_dim = self.env.observation_space.shape[0]
-        self.entropy_weight = None
+        entropy_weight = 0.0
         if isinstance(self.env.action_space, gym.spaces.discrete.Discrete):
             self.num_actions = self.env.action_space.n
             self.continuous_action_space = False
@@ -47,17 +48,10 @@ class PPO:
             self.continuous_action_space = True
             self.num_actions = self.env.action_space.shape[0]
             if TrainingParameters.entropy_weight:
-                self.entropy_weight = tf.constant(
-                    float(TrainingParameters.entropy_weight)
-                )
+                entropy_weight = float(TrainingParameters.entropy_weight)
+        self.entropy_weight = tf.constant(entropy_weight)
         # Policy network
-        self.policy_net = Net(
-            self.state_dim,
-            self.num_actions,
-            NetworkParameters.policy,
-            "actor",
-            self.continuous_action_space,
-        )
+        self.policy_net = Net(self.state_dim, self.num_actions, NetworkParameters.policy, "actor", self.continuous_action_space)
         self.render_decision = parameters.render_decision
         self.test_only = parameters.test_decision
         if logger is not None:
@@ -75,49 +69,68 @@ class PPO:
             self.model_save_frequency = TrainingParameters.model_save_frequency
             self.discount = TrainingParameters.discount
             self.starting_iteration = 0
-            self.state_function_estimator = Net(
-                self.state_dim, 1, NetworkParameters.state_function_estimator, "critic",
-            )
+            self.state_function_estimator = Net(self.state_dim, 1, NetworkParameters.state_function_estimator, "critic")
             self.pi_ratio = tf.constant(float(TrainingParameters.pi_ratio))
             self.print_fn("Initiating model for PPO algorithm")
 
         if parameters.model_path:
             self.policy_net.load_weights(parameters.model_path)
-            self.print_fn(
-                f"Loading weights for {self.policy_net.name} from {parameters.model_path}"
-            )
+            self.print_fn(f"Loading weights for {self.policy_net.name} from {parameters.model_path}")
             self.starting_iteration = int(parameters.model_path[-5:])
             if parameters.state_function_estimator_model_path:
-                self.state_function_estimator.load_weights(
-                    parameters.state_function_estimator_model_path
-                )
-                self.print_fn(
-                    f"Loading weights for {self.state_function_estimator.name} "
-                    f"from {parameters.state_function_estimator_model_path}"
-                )
+                self.state_function_estimator.load_weights(parameters.state_function_estimator_model_path)
+                self.print_fn(f"Loading weights for {self.state_function_estimator.name} from {parameters.state_function_estimator_model_path}")
+        
 
     def simulate_agent_for_max_timesteps(self, state):
-        states, rewards, actions = [], [], []
+        # TODO: Add GAE
+        ### Simulate agent for max_timesteps (or till done) in environment ###
+        states, rewards, actions, actions_likelihood = [], [], [], []
         timestep, done = 0, False
         while not done and (timestep < TrainingParameters.max_timesteps):
-            action = self.policy_net.get_action(
-                tf.expand_dims(state, axis=0), deterministic_policy=False
-            )
+            action, action_likelihood = self.policy_net.get_action(
+                tf.expand_dims(state, axis=0),
+                deterministic_policy=False)
             next_state, reward, done, _ = self.env.step(action)
             states.append(state)
             actions.append(action)
             rewards.append(reward)
+            actions_likelihood.append(action_likelihood)
             state = next_state
             timestep += 1
+
+        ### Compute value functions using discounted rewards with TD  ###
         R = 0
         if not done:
             # Bootstrap value function for last state (if not terminal)
             R = self.state_function_estimator(tf.expand_dims(state, axis=0))
-        value_function_targets = np.zeros((len(states), 1))
+        value_function_targets = np.zeros((timestep, 1))
         for updatestep in range(timestep - 1, -1, -1):
             R = rewards[updatestep] + self.discount * R
             value_function_targets[updatestep] = R
-        return states, actions, value_function_targets, done, next_state
+
+        ### Compute advantage functions ###
+        states = tf.convert_to_tensor(states, dtype=tf.float32)
+        actions = tf.convert_to_tensor(actions)
+        advantage_functions = value_function_targets - self.state_function_estimator(states)
+
+        # Normalize advantage functions
+        mean, std = tf.math.reduce_mean(advantage_functions), tf.math.reduce_std(advantage_functions)
+        advantage_functions = (advantage_functions - mean) / std
+        # Normalize value functions
+        mean, std = tf.math.reduce_mean(value_function_targets), tf.math.reduce_std(value_function_targets)
+        value_function_targets = (value_function_targets - mean) / std
+
+        actions_likelihood = tf.concat(actions_likelihood, 0)
+        return (
+            states,
+            actions,
+            actions_likelihood,
+            advantage_functions,
+            value_function_targets,
+            next_state,
+            done,
+        )
 
     def train(self):
         """ Train agent using PPO algorithm
@@ -148,62 +161,78 @@ class PPO:
         )
 
         state = self.env.reset()
-        for iteration in tqdm(
-            range(
-                self.starting_iteration,
-                self.starting_iteration + self.train_iterations + 1,
-            )
-        ):
-            (
-                states,
-                actions,
-                value_function_targets,
-                done,
-                state,
-            ) = self.simulate_agent_for_max_timesteps(state)
+        iteration = self.starting_iteration
+        total_iterations = self.starting_iteration + self.train_iterations + 1
+        iterations_when_tested = []
+        num_episodes_done = 0
+        while iteration < total_iterations:
+            states,actions, actions_likelihood, advantage_functions, value_function_targets, state, done = self.simulate_agent_for_max_timesteps(state)
             if done:
                 state = self.env.reset()
-            states = tf.convert_to_tensor(states, dtype=tf.float32)
-            actions = tf.convert_to_tensor(actions)
-            if tf.is_tensor(value_function_targets[0]):
-                value_function_targets = tf.concat(
-                    values=value_function_targets, axis=0
+                num_episodes_done += 1
+            iteration += states.shape[0]
+            dataset = (
+                tf.data.Dataset.from_tensor_slices(
+                    (
+                        states,
+                        actions,
+                        actions_likelihood,
+                        advantage_functions,
+                        value_function_targets,
+                    )
                 )
-            else:
-                """
-                If using MC returns (if value of n in n-step return greater than episode 
-                length), convert floats to tensor and add axis in last dimension to 
-                convert shape of targets from (num_transitions,) to (num_transitions,1)
-                """
-                value_function_targets = tf.expand_dims(
-                    tf.convert_to_tensor(value_function_targets, dtype=tf.float32),
-                    axis=-1,
-                )
-            advantage_functions = (
-                value_function_targets - self.state_function_estimator(states)
+                .shuffle(TrainingParameters.max_timesteps)
+                .batch(min(TrainingParameters.batch, states.shape[0]))
             )
-            pi_theta_old, _ = calculate_likelihood(
-                self.continuous_action_space, self.policy_net(states), actions
-            )
-            for _ in range(TrainingParameters.epochs_per_iteration):
-                policy_loss, entropy = policy_net_train_step(
-                    self.policy_net,
-                    policy_optimizer,
+
+            ### Train for k epochs ###
+            policy_loss, entropy, state_function_estimator_loss = 0, 0, 0
+            min_new_to_old_policy_ratio, max_new_to_old_policy_ratio = 0, 0
+            for epoch in range(TrainingParameters.epochs_per_iteration):
+                for (
                     states,
-                    advantage_functions,
                     actions,
-                    pi_theta_old,
-                    self.entropy_weight,
-                    self.pi_ratio
-                )
-                state_function_estimator_loss = state_function_estimator_train_step(
-                    self.state_function_estimator,
-                    state_function_estimator_optimizer,
-                    states,
+                    actions_likelihood,
+                    advantage_functions,
                     value_function_targets,
-                )
-            # Tensorboard logging
+                ) in dataset:
+                    batch_policy_loss, batch_entropy, new_to_old_policy_ratio = policy_net_train_step(
+                        self.policy_net,
+                        policy_optimizer,
+                        states,
+                        advantage_functions,
+                        actions,
+                        actions_likelihood,
+                        self.entropy_weight,
+                        self.pi_ratio,
+                    )
+                    batch_state_function_estimator_loss = state_function_estimator_train_step(
+                        self.state_function_estimator,
+                        state_function_estimator_optimizer,
+                        states,
+                        value_function_targets,
+                    )
+                    min_new_to_old_policy_ratio = min(min_new_to_old_policy_ratio, new_to_old_policy_ratio.numpy().min())
+                    max_new_to_old_policy_ratio = max(max_new_to_old_policy_ratio, new_to_old_policy_ratio.numpy().max())
+
+                policy_loss = (policy_loss * epoch + batch_policy_loss) / (epoch + 1)
+                entropy = (entropy * epoch + batch_entropy) / (epoch + 1)
+                state_function_estimator_loss = (
+                    state_function_estimator_loss * epoch
+                    + batch_state_function_estimator_loss
+                ) / (epoch + 1)
+            ### Log metrics on tensorboard ###
             with tensorboard_file_writer.as_default():
+                tf.summary.scalar(
+                    "min_new_to_old_policy_ratio",
+                    min_new_to_old_policy_ratio,
+                    step=iteration,
+                )
+                tf.summary.scalar(
+                    "max_new_to_old_policy_ratio",
+                    max_new_to_old_policy_ratio,
+                    step=iteration,
+                )
                 tf.summary.scalar(
                     f"Training loss for {self.policy_net.name}",
                     policy_loss,
@@ -224,39 +253,33 @@ class PPO:
                     state_function_estimator_optimizer._decayed_lr(tf.float32).numpy(),
                     step=iteration,
                 )
-                if entropy:
+                if entropy is not None:
                     tf.summary.scalar(
                         f"Entropy for action distribution",
-                        entropy.numpy(),
+                        entropy,
                         step=iteration,
                     )
-                # Test policy as per test frequency
-                if iteration % self.test_frequency == 0:
-                    if iteration % self.render_frequency == 0:
+                ### Test learnt policy ###
+                if num_episodes_done > 0 and num_episodes_done % self.test_frequency == 0:
+                    if num_episodes_done % self.render_frequency == 0:
                         (
                             mean_test_reward,
                             std_test_reward,
                             max_test_reward,
                             min_test_reward,
                         ) = self.execute_policy(
-                            current_training_iteration=iteration,
+                            current_training_iteration=num_episodes_done,
                             test_episodes=self.test_episodes,
                             render=self.render_decision,
                             save_frequency=TrainingParameters.video_save_frequency,
                         )
                     else:
-                        (
-                            mean_test_reward,
-                            std_test_reward,
-                            max_test_reward,
-                            min_test_reward,
-                        ) = self.execute_policy(
-                            test_episodes=self.test_episodes, render=False
-                        )
+                        mean_test_reward, std_test_reward,max_test_reward, min_test_reward, = self.execute_policy(test_episodes=self.test_episodes, render=self.render_decision)
                     self.print_fn(
-                        f"After {iteration} training iterations, mean test reward is {mean_test_reward} "
+                        f"After {num_episodes_done} training episodes, mean test reward is {mean_test_reward} "
                         f"with std of {std_test_reward} over {self.test_episodes} episodes"
                     )
+                    iterations_when_tested.append(iteration)
                     mean_test_rewards.append(mean_test_reward)
                     std_test_rewards.append(std_test_reward)
                     tf.summary.scalar(
@@ -271,7 +294,7 @@ class PPO:
                         "Min rewards over 100 episodes", min_test_reward, step=iteration
                     )
 
-            # Save model as per model_save_frequency
+            ### Save learnt models ###
             if iteration % self.model_save_frequency == 0:
                 self.policy_net.save_weights(
                     os.path.join(
@@ -287,14 +310,7 @@ class PPO:
                 )
 
         plt.figure(figsize=(15, 10))
-        iterations = list(
-            range(
-                self.starting_iteration,
-                self.starting_iteration + self.train_iterations + 1,
-                self.test_frequency,
-            )
-        )
-        plt.errorbar(x=iterations, y=mean_test_rewards, yerr=std_test_rewards)
+        plt.errorbar(x=iterations_when_tested, y=mean_test_rewards, yerr=std_test_rewards)
         plt.xlabel("Number of episodes")
         plt.ylabel("Mean reward with std")
         plt.savefig(os.path.join(Directories.output, "Training_performance.png"))
@@ -327,10 +343,8 @@ class PPO:
             Mean and std of rewards obtained by agent over number of test episodes specified
         """
         if render and save_frequency:
-
             def video_frequency(x):
                 return x % save_frequency == 0
-
             if self.test_only:
                 video_save_path = os.path.join(
                     Directories.output, f"{self.env_name}_test_videos"
@@ -351,16 +365,17 @@ class PPO:
                 if render:
                     self.env.render()
                 if self.continuous_action_space:
-                    action = self.policy_net.get_action(
+                    action, _ = self.policy_net.get_action(
                         tf.expand_dims(state, axis=0), deterministic_policy=False
                     )
                 else:
-                    action = self.policy_net.get_action(
+                    action, _ = self.policy_net.get_action(
                         tf.expand_dims(state, axis=0), deterministic_policy=True
                     )
                 state, reward, done, _ = self.env.step(action)
                 curr_episode_reward += reward
             rewards[test_episode] = curr_episode_reward
+        self.env.reset()
         return np.mean(rewards), np.std(rewards), np.max(rewards), np.min(rewards)
 
 
@@ -407,7 +422,7 @@ def parse_arguments():
     parser.add_argument(
         "--ep",
         dest="num_episodes",
-        default=None,
+        default=100,
         type=int,
         help="Number of training iteration steps and if test flag is given, "
         "this can be used to specify number of test episodes",
@@ -486,20 +501,16 @@ InferenceParameters = config_parameters.Inference
 Directories = config_parameters.Directories
 
 if __name__ == "__main__":
-    TIMESTAMP = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
+    TIMESTAMP = "debug"  # time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
     args = parse_arguments().parse_args()
 
     if args.test_decision:
-        if args.num_episodes is None:  # Set default test episodes to 100
-            args.num_episodes = 100
         if args.model_path is None:
-            raise FileNotFoundError("Model path missing for inference")
+            raise FileNotFoundError("Model file missing for inference")
         # Use saved model path directory
         Directories.output = "/".join(args.model_path.split("/")[:-2])
         logger_file_path = os.path.join(Directories.output, "test.log")
     else:
-        if args.num_episodes is None:  # Set default train iterations to 100
-            args.num_episodes = 100
         if args.model_path:  # Continue training from pretrained model
             Directories.output = "/".join(args.model_path.split("/")[:-2])
         else:

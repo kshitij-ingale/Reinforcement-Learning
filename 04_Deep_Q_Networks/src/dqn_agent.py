@@ -1,4 +1,4 @@
-""" Script implementing Policy gradients agent (REINFORCE and actor critic) for Gym environment """
+""" Script implementing DQN for Gym environment """
 import argparse, gym, os, time, logging, random
 import numpy as np
 import tensorflow as tf

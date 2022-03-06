@@ -37,7 +37,8 @@ class DenseBlock(tf.keras.layers.Layer):
                 )
             else:
                 raise SyntaxError(f"{norm} normalization not found")
-        self.functions.append(activation)
+        if activation:
+            self.functions.append(activation)
 
     def call(self, x):
         for function in self.functions:
@@ -72,11 +73,12 @@ class Net(tf.keras.Model):
         self.continuous_action_space = continuous_action_space
         self.hidden_layers = []
         for num_hidden_unit in net_params.hidden_units:
+            activation = getattr(tf.nn, net_params.activation) if net_params.activation else None
             self.hidden_layers.append(
                 DenseBlock(
                     num_hidden_unit,
                     norm=net_params.normalization,
-                    activation=getattr(tf.nn, net_params.activation),
+                    activation=activation,
                 )
             )
         if self.continuous_action_space:
@@ -116,13 +118,17 @@ class Net(tf.keras.Model):
             continuous action vector for continuous action space environment
         """
         if self.continuous_action_space:
-            mean, logvar = self.call(inputs)
+            action_logits = self.call(inputs)
+            mean, logvar = action_logits
             if deterministic_policy:
                 action = mean
             else:
                 eps = tf.random.normal(shape=mean.shape)
                 action = eps * tf.exp(logvar) + mean
             action = action.numpy()[0]
+            action_likelihood = calculate_likelihood(
+                self.continuous_action_space, action_logits, action
+            )
         else:
             action_logits = self.call(inputs)
             if deterministic_policy:
@@ -131,7 +137,8 @@ class Net(tf.keras.Model):
                 ).numpy()[0]
             else:
                 action = tf.random.categorical(action_logits, 1).numpy()[0][0]
-        return action
+            action_likelihood = tf.math.log(tf.nn.softmax(action_logits))[:, action]
+        return action, action_likelihood
 
     def print_summary(self, state_dim):
         """ Prints keras model summary (only used for debug)
@@ -146,7 +153,6 @@ class Net(tf.keras.Model):
 
 
 def calculate_likelihood(continuous_action_space, action_logits, actions):
-    entropy = None
     if continuous_action_space:
         mean, logvar = action_logits
         logvar = tf.clip_by_value(logvar, -10, 5)
@@ -155,60 +161,43 @@ def calculate_likelihood(continuous_action_space, action_logits, actions):
             + tf.math.log(2.0 * math.pi)
             + (tf.math.square(actions - mean) / (tf.math.exp(logvar)))
         )
-        entropy = tf.reduce_mean(0.5 * (1 + tf.math.log(2.0 * math.pi) + logvar))
     else:
         likelihood = -tf.nn.sparse_softmax_cross_entropy_with_logits(
             logits=action_logits, labels=actions
         )
-    return likelihood, entropy
+    return likelihood
 
+
+def calculate_entropy(logvar):
+    return tf.reduce_mean(0.5 * (1 + tf.math.log(2.0 * math.pi) + logvar))
 
 def policy_gradient_loss(
     action_logits,
-    actions,
-    discounted_returns,
+    old_actions,
+    old_actions_likelihood,
+    advantage_functions,
     continuous_action_space,
-    pi_theta_old,
     entropy_weight,
     pi_ratio,
 ):
-    """ Calculates loss for obtaining policy gradients. For this loss, we want predicted action probabilities
-    to correspond to actual actions performed. So, we maximize likelihood of the predicted actions to be from 
-    actual action distribution. Finally, advantage function is multiplied so that agent can learn which actions
-    are better
-
-    Parameters
-    ----------
-    action_logits : tf.Tensor
-        Logits (or distribution parameters for continuous actions)corresponding
-         to actions output from model
-    actions : tf.Tensor
-        Actions corresponding to model output, executed by agent in environment
-    discounted_returns : tf.Tensor
-        Future discounted rewards obtained by agent while performing the actions
-    continuous_action_space : bool, optional
-        Environment has continuous action space modeled with gaussian distributions, 
-        accordingly loss will be computed with gaussian pdf, by default False
-
-    Returns
-    -------
-    tf.Tensor
-        Policy gradients in the form of loss for the policy network
-    """
-    likelihood, entropy = calculate_likelihood(
-        continuous_action_space, action_logits, actions
+    likelihood = calculate_likelihood(
+        continuous_action_space, action_logits, old_actions
     )
-    new_to_old_policy_ratio = tf.exp(likelihood - pi_theta_old + 1e-6)
+    new_to_old_policy_ratio = tf.exp(likelihood - old_actions_likelihood + 1e-6)
+    clipped_ratio = tf.clip_by_value(
+        new_to_old_policy_ratio, 1 - pi_ratio, 1 + pi_ratio
+    )
     loss = -tf.reduce_mean(
         tf.math.minimum(
-            new_to_old_policy_ratio * discounted_returns,
-            tf.clip_by_value(new_to_old_policy_ratio, 1 - pi_ratio, 1 + pi_ratio)
-            * discounted_returns,
+            new_to_old_policy_ratio * advantage_functions,
+            clipped_ratio * advantage_functions,
         )
     )
-    if entropy is not None:
-        loss += entropy_weight * entropy
-    return loss, entropy
+    entropy = 0.0
+    if continuous_action_space:
+        entropy = calculate_entropy(action_logits[1])
+        loss -= entropy_weight * entropy
+    return loss, entropy, new_to_old_policy_ratio
 
 
 def state_function_estimator_loss(PredictedQvalues, targets):
@@ -234,46 +223,27 @@ def policy_net_train_step(
     model,
     optimizer,
     states,
-    discounted_returns,
-    actions,
-    pi_theta_old,
+    advantage_functions,
+    old_actions,
+    old_actions_likelihood,
     entropy_weight,
     pi_ratio,
 ):
-    """ Training step for policy network
 
-    Parameters
-    ----------
-    model : tf.keras.Model
-        Policy network model
-    optimizer : tf.keras.optimizers
-        Optimizer for policy network gradient update step
-    states : tf.Tensor
-        Batch of state vectors obtained from environment
-    discounted_returns : tf.Tensor
-        Batch of future discounted rewards obtained by agent while performing the actions
-    actions : tf.Tensor
-        Batch of actions executed by agent in environment
-
-    Returns
-    -------
-    tf.Tensor
-        Policy gradients in the form of loss for the policy network
-    """
     with tf.GradientTape() as tape:
         action_logits = model(states)
-        loss_value, entropy = policy_gradient_loss(
+        loss_value, entropy, new_to_old_policy_ratio = policy_gradient_loss(
             action_logits,
-            actions,
-            discounted_returns,
+            old_actions,
+            old_actions_likelihood,
+            advantage_functions,
             model.continuous_action_space,
-            pi_theta_old,
             entropy_weight,
             pi_ratio,
         )
     gradients = tape.gradient(loss_value, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-    return loss_value, entropy
+    return loss_value, entropy, new_to_old_policy_ratio
 
 
 @tf.function(experimental_relax_shapes=True)

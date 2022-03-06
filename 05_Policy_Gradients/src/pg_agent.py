@@ -42,7 +42,9 @@ class PolicyGrad:
             self.continuous_action_space = True
             self.num_actions = self.env.action_space.shape[0]
             if TrainingParameters.entropy_weight:
-                self.entropy_weight = tf.constant(float(TrainingParameters.entropy_weight))
+                self.entropy_weight = tf.constant(
+                    float(TrainingParameters.entropy_weight)
+                )
         # Policy network or Actor network in AC
         if TrainingParameters.use_REINFORCE:
             self.policy_net = Net(
@@ -623,7 +625,7 @@ InferenceParameters = config_parameters.Inference
 Directories = config_parameters.Directories
 
 if __name__ == "__main__":
-    TIMESTAMP = "debug"  # time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
+    TIMESTAMP = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
     args = parse_arguments().parse_args()
 
     if args.test_decision:

@@ -153,7 +153,6 @@ def policy_gradient_loss(
     continuous_action_space=False,
     entropy_weight=1e-3,
 ):
-
     """ Calculates loss for obtaining policy gradients. For this loss, we want predicted action probabilities
     to correspond to actual actions performed. So, we maximize likelihood of the predicted actions to be from 
     actual action distribution. Finally, advantage function is multiplied so that agent can learn which actions
@@ -192,6 +191,7 @@ def policy_gradient_loss(
             + tf.math.log(2.0 * math.pi)
             + (tf.math.square(actions - mean) / (tf.math.exp(logvar)))
         )
+        # By maximizing entropy term, agent is encouraged to explore
         entropy = tf.reduce_mean(0.5 * (1 + tf.math.log(2.0 * math.pi) + logvar))
         log_prob_term = -(likelihood)
     else:
@@ -202,7 +202,7 @@ def policy_gradient_loss(
         )
     loss = tf.reduce_mean(discounted_returns * log_prob_term)
     if entropy is not None:
-        loss += entropy_weight * entropy
+        loss -= entropy_weight * entropy
     return loss, entropy
 
 

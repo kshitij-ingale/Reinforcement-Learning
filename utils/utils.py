@@ -1,4 +1,3 @@
-import types
 import yaml
 
 class OD(dict):
